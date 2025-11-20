@@ -9,7 +9,6 @@ from openai import OpenAI
 # --- CONFIGURATION ---
 @st.cache_resource
 def init_db():
-    # Initialisation de la base de données
     client = chromadb.PersistentClient(path="./ma_base_articles")
     return client.get_or_create_collection(name="articles_web")
 
@@ -23,7 +22,6 @@ def extraire_texte_web(url):
         response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.content, 'html.parser')
         titre = soup.title.string if soup.title else url
-        # Récupération propre du texte des paragraphes
         texte = " ".join([p.text for p in soup.find_all('p')])
         return titre, texte
     except Exception as e:
@@ -36,7 +34,6 @@ def transcrire_video_cloud(url, api_key):
     
     client = OpenAI(api_key=api_key)
     
-    # Options pour télécharger l'audio léger (m4a)
     ydl_opts = {
         'format': 'm4a/bestaudio/best',
         'outtmpl': 'temp_audio.%(ext)s',
@@ -44,20 +41,17 @@ def transcrire_video_cloud(url, api_key):
     }
     
     try:
-        # 1. Téléchargement
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             titre = info.get('title', 'Vidéo sans titre')
             filename = ydl.prepare_filename(info)
 
-        # 2. Transcription via API OpenAI (Whisper-1)
         with open(filename, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_file
             )
         
-        # 3. Nettoyage du fichier temporaire
         if os.path.exists(filename):
             os.remove(filename)
             
@@ -72,10 +66,10 @@ def transcrire_video_cloud(url, api_key):
 st.set_page_config(page_title="Ma Base IA", layout="wide")
 st.title("🧠 Ma Base de Connaissances")
 
-# --- SIDEBAR (Ajout de contenu) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    api_key = st.text_input("Clé API OpenAI", type="password", help="Requise pour les vidéos")
+    api_key = st.text_input("Clé API OpenAI", type="password", help="Pour les vidéos")
     
     st.divider()
     st.header("📥 Ajouter du contenu")
@@ -85,7 +79,7 @@ with st.sidebar:
     with col1:
         if st.button("🌐 Web"):
             if url_input:
-                with st.spinner("Lecture du site..."):
+                with st.spinner("Lecture..."):
                     titre, contenu = extraire_texte_web(url_input)
                     if titre and contenu:
                         collection.add(
@@ -93,14 +87,15 @@ with st.sidebar:
                             metadatas=[{"url": url_input, "title": titre, "type": "web"}], 
                             ids=[url_input]
                         )
-                        st.success("✅ Site ajouté !")
+                        st.success("Ajouté !")
+                        st.rerun() # Rafraîchit la page pour voir l'ajout
                     else:
-                        st.error("Erreur de lecture.")
+                        st.error("Erreur.")
     
     with col2:
         if st.button("🎬 Vidéo"):
             if url_input and api_key:
-                with st.spinner("Transcription IA en cours..."):
+                with st.spinner("Transcription..."):
                     titre, contenu = transcrire_video_cloud(url_input, api_key)
                     if titre and contenu:
                         collection.add(
@@ -108,37 +103,35 @@ with st.sidebar:
                             metadatas=[{"url": url_input, "title": titre, "type": "video"}], 
                             ids=[url_input]
                         )
-                        st.success("✅ Vidéo ajoutée !")
+                        st.success("Ajouté !")
+                        st.rerun()
                     else:
                         st.error(f"Erreur: {contenu}")
             elif not api_key:
-                st.warning("Il faut une clé API.")
+                st.warning("Clé API requise.")
 
-# --- TABS (Onglets principaux) ---
-tab1, tab2 = st.tabs(["💬 Discuter / Rechercher", "📚 Bibliothèque Complète"])
+# --- ONGLETS ---
+tab1, tab2 = st.tabs(["💬 Recherche", "📚 Gestion Bibliothèque"])
 
 # --- ONGLET 1 : CHAT ---
 with tab1:
-    st.header("Recherche Intelligente")
-    query = st.chat_input("Pose une question sur tes documents...")
+    st.header("Poser une question")
+    query = st.chat_input("Ex: Que dit la vidéo sur les dauphins ?")
     
     if query:
         with st.chat_message("user"):
             st.write(query)
 
-        # Recherche dans la base vectorielle
         results = collection.query(query_texts=[query], n_results=3)
         
         with st.chat_message("assistant"):
             found = False
             if results['ids'] and results['ids'][0]:
-                st.write("J'ai trouvé ces informations pertinentes :")
+                st.write("Voici les éléments pertinents trouvés :")
                 for i in range(len(results['ids'][0])):
                     meta = results['metadatas'][0][i]
-                    doc = results['documents'][0][i][:400] # Extrait de 400 caractères
-                    
-                    # Choix de l'icône selon le type
-                    icon = "🎥" if meta.get('type') == 'video' else "📄"
+                    doc = results['documents'][0][i][:400]
+                    icon = "🎬" if meta.get('type') == 'video' else "🌐"
                     
                     with st.expander(f"{icon} {meta.get('title', 'Sans titre')}"):
                         st.markdown(f"**Source :** [{meta.get('url')}]({meta.get('url')})")
@@ -146,36 +139,57 @@ with tab1:
                     found = True
             
             if not found:
-                st.warning("Je n'ai rien trouvé dans la base.")
+                st.warning("Aucune info trouvée dans la base.")
 
-# --- ONGLET 2 : BIBLIOTHÈQUE ---
+# --- ONGLET 2 : GESTION BIBLIOTHÈQUE (NOUVEAU) ---
 with tab2:
-    st.header("📚 Tout le contenu en mémoire")
+    st.header("📚 Gérer mes connaissances")
     
-    # Récupération de TOUS les documents
-    # On ne passe pas de query_texts, donc il renvoie tout.
+    # Récupérer tout le contenu
     all_data = collection.get()
+    ids = all_data['ids']
     
-    if all_data['ids']:
-        total = len(all_data['ids'])
-        st.caption(f"{total} documents stockés.")
-        
-        # Affichage sous forme de liste extensible
-        for i in range(total):
-            meta = all_data['metadatas'][i]
-            doc_comple = all_data['documents'][i]
-            doc_id = all_data['ids'][i]
-            
-            icon = "🎥" if meta.get('type') == 'video' else "📄"
-            
-            with st.expander(f"{icon} {meta.get('title', 'Sans titre')}"):
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.markdown(f"**Lien :** {meta.get('url')}")
-                    st.text_area("Contenu complet", doc_comple, height=200, key=f"text_{i}")
-                with col_b:
-                    st.info(f"ID: {doc_id}")
-                    # Note: Pour ajouter un bouton supprimer, il faudrait une gestion d'état plus complexe,
-                    # mais c'est possible par la suite.
+    if not ids:
+        st.info("La base de données est vide.")
     else:
-        st.info("La bibliothèque est vide pour l'instant.")
+        st.markdown(f"**{len(ids)} documents stockés.** Sélectionnez ceux que vous voulez supprimer.")
+        
+        # Liste pour stocker les IDs cochés
+        items_to_delete = []
+        
+        # Affichage de la liste avec cases à cocher
+        for i in range(len(ids)):
+            doc_id = ids[i]
+            meta = all_data['metadatas'][i]
+            doc_content = all_data['documents'][i]
+            title = meta.get('title', 'Sans titre')
+            url = meta.get('url', '#')
+            doc_type = meta.get('type', 'inconnu')
+            icon = "🎬" if doc_type == 'video' else "🌐"
+
+            # Création de 2 colonnes : une petite pour la case, une grande pour le contenu
+            col_check, col_info = st.columns([0.05, 0.95])
+            
+            with col_check:
+                # La case à cocher. Si cochée, on ajoute l'ID à la liste
+                if st.checkbox("", key=f"del_{doc_id}"):
+                    items_to_delete.append(doc_id)
+            
+            with col_info:
+                with st.expander(f"{icon} {title}"):
+                    st.caption(f"Type: {doc_type} | ID: {doc_id}")
+                    st.markdown(f"**Lien :** {url}")
+                    st.text_area("Contenu complet", doc_content, height=100, disabled=True, key=f"txt_{doc_id}")
+
+        # Bouton de suppression (s'affiche uniquement si on a coché quelque chose)
+        if items_to_delete:
+            st.divider()
+            st.warning(f"⚠️ Vous êtes sur le point de supprimer {len(items_to_delete)} élément(s).")
+            
+            if st.button("🗑️ CONFIRMER LA SUPPRESSION", type="primary"):
+                try:
+                    collection.delete(ids=items_to_delete)
+                    st.success("Suppression effectuée avec succès !")
+                    st.rerun() # Recharge la page pour mettre à jour la liste
+                except Exception as e:
+                    st.error(f"Erreur : {e}")
