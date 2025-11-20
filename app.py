@@ -105,7 +105,7 @@ def generer_reponse_rag(question, context_docs, api_key):
 
     try:
         stream = client.chat.completions.create(
-            model="gpt-3.5-turbo", # Ou gpt-4o
+            model="gpt-4.1-nano", # Ou gpt-4o
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -198,7 +198,7 @@ with tab1:
             for i in range(len(results['ids'][0])):
                 doc = results['documents'][0][i]
                 meta = results['metadatas'][0][i]
-                context_docs.append(f"Titre: {meta['title']}\nTexte: {doc}")
+                context_docs.append(f"Titre: {meta.get('title', 'Sans titre')}\nTexte: {doc}")
                 sources_meta.append(meta)
 
         with st.chat_message("assistant"):
