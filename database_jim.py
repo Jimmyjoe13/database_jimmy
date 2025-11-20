@@ -13,7 +13,7 @@ def ajouter_article(url, titre, contenu):
         ids=[url]                          # ID unique (ici l'URL)
     )
 
-def recherche_ia(question, n=2):
+def recherche_ia(question, n=10):
     """Recherche les articles les plus pertinents par le sens."""
     results = collection.query(
         query_texts=[question],

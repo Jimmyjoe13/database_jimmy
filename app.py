@@ -189,7 +189,7 @@ with tab1:
             st.markdown(prompt)
 
         # Recherche RAG
-        results = collection.query(query_texts=[prompt], n_results=4)
+        results = collection.query(query_texts=[prompt], n_results=10)
         
         context_docs = []
         sources_meta = []
